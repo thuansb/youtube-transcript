@@ -1,140 +1,95 @@
-import { load } from 'cheerio'
-
-const RE_YOUTUBE =
-  /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/i
-
-const RE_CAPTION_TRACKS = /"captionTracks":\s*(\[.*?\])/
-
+import { parse } from 'node-html-parser';
 const USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)'
-
-export interface YoutubeTranscriptResponse {
-  text: string
-  duration: number
-  offset: number
-}
-
-export interface YoutubeFetchConfig {
-  /**
-   * Locale code
-   * @example en, es, hk, uk
-   */
-  lang?: string
-}
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)';
 
 export class YoutubeTranscriptError extends Error {
   constructor(message: string) {
-    super(`[YoutubeTranscript] ${message}`)
+    super(`[YoutubeTranscript] ${message}`);
   }
 }
 
-/**
- * Fetch transcript from Youtube Video
- * @param {string} videoUrlOrId - Video url or identifier
- * @param {YoutubeFetchConfig} [config]
- * @return {Promise<YoutubeTranscriptResponse[]>} - If locale available, the localized transcription or default or null.
- */
-export const fetchTranscript = async (videoUrlOrId: string, config: YoutubeFetchConfig = {}): Promise<YoutubeTranscriptResponse[]> => {
-  try {
-    const videoId = getVideoId(videoUrlOrId)
+export class YoutubeTranscript {
+  /**
+   * Fetch transcript from YouTube Video
+   * @param videoId Video url or video identifier
+   * @param config Object with lang param (eg: en, es, hk, uk) format.
+   * Will just grab the first caption if it can find one, so no special lang caption support.
+   */
+  static async fetchTranscript(videoId: string, config: { lang?: string } = {}) {
+    const identifier = this.retrieveVideoId(videoId);
+    const lang = config?.lang ?? 'en';
+    try {
+      const transcriptUrl = await fetch(`https://www.youtube.com/watch?v=${identifier}`, {
+        headers: {
+          'User-Agent': USER_AGENT,
+        },
+      })
+        .then((res) => res.text())
+        .then((html) => parse(html))
+        .then((html) => this.parseTranscriptEndpoint(html, lang));
 
-    if (!videoId) {
-      throw new Error('Invalid Youtube video identifier.')
-    }
+      if (!transcriptUrl) throw new Error('Failed to locate a transcript for this video!');
 
-    const url = await getTranscriptUrl(videoId, config?.lang ?? 'en')
+      const transcriptXML = await fetch(transcriptUrl)
+        .then((res) => res.text())
+        .then((xml) => parse(xml));
 
-    if (!url) {
-      throw new Error('Transcription unavailable.')
-    }
+      const chunks = transcriptXML.getElementsByTagName('text');
+      const transcriptions = [];
 
-    return await getTranscript(url)
-  } catch (err) {
-    throw new YoutubeTranscriptError(err)
-  }
-}
-
-/**
- * @deprecated Use named export `fetchTranscript`.
- */
-export const YoutubeTranscript = {
-  fetchTranscript
-}
-
-const getTranscriptUrl = async (identifier: string, lang?: string) => {
-  const response = await fetch(`https://www.youtube.com/watch?v=${identifier}`, {
-    headers: {
-      'User-Agent': USER_AGENT,
-    },
-  })
-  const body = await response.text()
-
-  return getCaptionTrack(body, lang)
-}
-
-/**
- * @see https://github.com/Kakulukian/youtube-transcript/issues/19
- * @param {string} url
- * @returns {Promise<YoutubeTranscriptResponse[]>}
- */
-const getTranscript = async (url: string): Promise<YoutubeTranscriptResponse[]> => {
-  const response = await fetch(url)
-  const body = await response.text()
-
-  const $ = load(body)
-
-  return $('text')
-    .map((_, element) => {
-      return {
-        text: $(element).text(),
-        offset: toMs($(element).attr('start')),
-        duration: toMs($(element).attr('dur')),
+      for (const chunk of chunks) {
+        const [offset, duration] = chunk.rawAttrs.split(" ");
+        const convertToMs = (text: string) =>
+          parseFloat(text.split("=")[1].replace(/"/g, "")) * 1000;
+        transcriptions.push({
+          text: chunk.text,
+          offset: convertToMs(offset),
+          duration: convertToMs(duration),
+        });
       }
-    })
-    .get()
-}
 
-/**
- * Extract caption track URL from raw HTML string.
- * @param {string} html - The raw HTML string.
- * @param {string} [lang] - The language code to filter the caption tracks by. Default is undefined.
- * @returns {string|null} - The URL of the caption track, or null if not found or an error occurred.
- */
-const getCaptionTrack = (
-  html: string,
-  lang?: string
-): string | null => {
-  try {
-    const captionTracks = JSON.parse(html.match(RE_CAPTION_TRACKS)?.[1] ?? '[]')
-
-    return (
-      ((lang && captionTracks.find((e) => e.languageCode.includes(lang))) || captionTracks[0])
-        ?.baseUrl ?? null
-    )
-  } catch (err) {
-    return null
-  }
-}
-
-/**
- * Get video id from url or string
- * @param videoId - video url or video id
- * @returns {string|null} - the identifier of null
- */
-const getVideoId = (videoId: string) => {
-  if (videoId.length === 11) {
-    return videoId
+      return transcriptions;
+    } catch (e) {
+      throw new YoutubeTranscriptError(e.message);
+    }
   }
 
-  return getVideoIdFromSearchParams(videoId) || videoId.match(RE_YOUTUBE)?.[1] || null
-}
+  private static parseTranscriptEndpoint(document: any, langCode: string | null = null) {
+    try {
+      const scripts = document.getElementsByTagName('script');
+      const playerScript = scripts.find((script: any) =>
+        script.textContent.includes('var ytInitialPlayerResponse = {')
+      );
 
-const getVideoIdFromSearchParams = (videoId: string) => {
-  try {
-    return new URL(videoId).searchParams.get('v')
-  } catch (err) {
-    return null
+      const dataString = playerScript.textContent?.split('var ytInitialPlayerResponse = ')?.[1]?.split('};')?.[0] + '}';
+
+      const data = JSON.parse(dataString.trim());
+      const availableCaptions = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+
+      let captionTrack = availableCaptions?.[0];
+      if (langCode) {
+        captionTrack =
+          availableCaptions.find((track: any) => track.languageCode.includes(langCode)) ?? availableCaptions?.[0];
+      }
+
+      return captionTrack?.baseUrl;
+    } catch (e) {
+      console.error(`YoutubeTranscript.#parseTranscriptEndpoint ${e.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Retrieve video id from url or string
+   * @param videoId video url or video id
+   */
+  static retrieveVideoId(videoId: string) {
+    const regex =
+      /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=|shorts\/)|youtu\.be\/)([^"&?\/\s]{11})/i;
+    const matchId = videoId.match(regex);
+    if (matchId && matchId.length) {
+      return matchId[1];
+    }
+    throw new YoutubeTranscriptError('Impossible to retrieve Youtube video ID.');
   }
 }
-
-const toMs = (n: string): number => Math.round(parseFloat(n) * 1000)

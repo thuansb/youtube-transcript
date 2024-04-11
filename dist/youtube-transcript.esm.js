@@ -1,4 +1,4 @@
-import { load } from 'cheerio';
+import { parse } from 'node-html-parser';
 
 /*! *****************************************************************************
 Copyright (c) Microsoft Corporation.
@@ -67,139 +67,112 @@ function __generator(thisArg, body) {
     }
 }
 
-var RE_YOUTUBE = /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/i;
-var RE_CAPTION_TRACKS = /"captionTracks":\s*(\[.*?\])/;
 var USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)';
 var YoutubeTranscriptError = /** @class */ (function (_super) {
     __extends(YoutubeTranscriptError, _super);
     function YoutubeTranscriptError(message) {
-        return _super.call(this, "[YoutubeTranscript] ".concat(message)) || this;
+        return _super.call(this, "[YoutubeTranscript] " + message) || this;
     }
     return YoutubeTranscriptError;
 }(Error));
-/**
- * Fetch transcript from Youtube Video
- * @param {string} videoUrlOrId - Video url or identifier
- * @param {YoutubeFetchConfig} [config]
- * @return {Promise<YoutubeTranscriptResponse[]>} - If locale available, the localized transcription or default or null.
- */
-var fetchTranscript = function (videoUrlOrId, config) {
-    if (config === void 0) { config = {}; }
-    return __awaiter(void 0, void 0, void 0, function () {
-        var videoId, url, err_1;
+var YoutubeTranscript = /** @class */ (function () {
+    function YoutubeTranscript() {
+    }
+    /**
+     * Fetch transcript from YouTube Video
+     * @param videoId Video url or video identifier
+     * @param config Object with lang param (eg: en, es, hk, uk) format.
+     * Will just grab the first caption if it can find one, so no special lang caption support.
+     */
+    YoutubeTranscript.fetchTranscript = function (videoId, config) {
         var _a;
-        return __generator(this, function (_b) {
-            switch (_b.label) {
-                case 0:
-                    _b.trys.push([0, 3, , 4]);
-                    videoId = getVideoId(videoUrlOrId);
-                    if (!videoId) {
-                        throw new Error('Invalid Youtube video identifier.');
-                    }
-                    return [4 /*yield*/, getTranscriptUrl(videoId, (_a = config === null || config === void 0 ? void 0 : config.lang) !== null && _a !== void 0 ? _a : 'en')];
-                case 1:
-                    url = _b.sent();
-                    if (!url) {
-                        throw new Error('Transcription unavailable.');
-                    }
-                    return [4 /*yield*/, getTranscript(url)];
-                case 2: return [2 /*return*/, _b.sent()];
-                case 3:
-                    err_1 = _b.sent();
-                    throw new YoutubeTranscriptError(err_1);
-                case 4: return [2 /*return*/];
-            }
+        if (config === void 0) { config = {}; }
+        return __awaiter(this, void 0, void 0, function () {
+            var identifier, lang, transcriptUrl, transcriptXML, chunks, transcriptions, _i, chunks_1, chunk, _b, offset, duration, convertToMs, e_1;
+            var _this = this;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        identifier = this.retrieveVideoId(videoId);
+                        lang = (_a = config === null || config === void 0 ? void 0 : config.lang) !== null && _a !== void 0 ? _a : 'en';
+                        _c.label = 1;
+                    case 1:
+                        _c.trys.push([1, 4, , 5]);
+                        return [4 /*yield*/, fetch("https://www.youtube.com/watch?v=" + identifier, {
+                                headers: {
+                                    'User-Agent': USER_AGENT,
+                                },
+                            })
+                                .then(function (res) { return res.text(); })
+                                .then(function (html) { return parse(html); })
+                                .then(function (html) { return _this.parseTranscriptEndpoint(html, lang); })];
+                    case 2:
+                        transcriptUrl = _c.sent();
+                        if (!transcriptUrl)
+                            throw new Error('Failed to locate a transcript for this video!');
+                        return [4 /*yield*/, fetch(transcriptUrl)
+                                .then(function (res) { return res.text(); })
+                                .then(function (xml) { return parse(xml); })];
+                    case 3:
+                        transcriptXML = _c.sent();
+                        chunks = transcriptXML.getElementsByTagName('text');
+                        transcriptions = [];
+                        for (_i = 0, chunks_1 = chunks; _i < chunks_1.length; _i++) {
+                            chunk = chunks_1[_i];
+                            _b = chunk.rawAttrs.split(" "), offset = _b[0], duration = _b[1];
+                            convertToMs = function (text) {
+                                return parseFloat(text.split("=")[1].replace(/"/g, "")) * 1000;
+                            };
+                            transcriptions.push({
+                                text: chunk.text,
+                                offset: convertToMs(offset),
+                                duration: convertToMs(duration),
+                            });
+                        }
+                        return [2 /*return*/, transcriptions];
+                    case 4:
+                        e_1 = _c.sent();
+                        throw new YoutubeTranscriptError(e_1.message);
+                    case 5: return [2 /*return*/];
+                }
+            });
         });
-    });
-};
-/**
- * @deprecated Use named export `fetchTranscript`.
- */
-var YoutubeTranscript = {
-    fetchTranscript: fetchTranscript
-};
-var getTranscriptUrl = function (identifier, lang) { return __awaiter(void 0, void 0, void 0, function () {
-    var response, body;
-    return __generator(this, function (_a) {
-        switch (_a.label) {
-            case 0: return [4 /*yield*/, fetch("https://www.youtube.com/watch?v=".concat(identifier), {
-                    headers: {
-                        'User-Agent': USER_AGENT,
-                    },
-                })];
-            case 1:
-                response = _a.sent();
-                return [4 /*yield*/, response.text()];
-            case 2:
-                body = _a.sent();
-                return [2 /*return*/, getCaptionTrack(body, lang)];
+    };
+    YoutubeTranscript.parseTranscriptEndpoint = function (document, langCode) {
+        var _a, _b, _c, _d, _e, _f, _g;
+        if (langCode === void 0) { langCode = null; }
+        try {
+            var scripts = document.getElementsByTagName('script');
+            var playerScript = scripts.find(function (script) {
+                return script.textContent.includes('var ytInitialPlayerResponse = {');
+            });
+            var dataString = ((_d = (_c = (_b = (_a = playerScript.textContent) === null || _a === void 0 ? void 0 : _a.split('var ytInitialPlayerResponse = ')) === null || _b === void 0 ? void 0 : _b[1]) === null || _c === void 0 ? void 0 : _c.split('};')) === null || _d === void 0 ? void 0 : _d[0]) + '}';
+            var data = JSON.parse(dataString.trim());
+            var availableCaptions = ((_f = (_e = data === null || data === void 0 ? void 0 : data.captions) === null || _e === void 0 ? void 0 : _e.playerCaptionsTracklistRenderer) === null || _f === void 0 ? void 0 : _f.captionTracks) || [];
+            var captionTrack = availableCaptions === null || availableCaptions === void 0 ? void 0 : availableCaptions[0];
+            if (langCode) {
+                captionTrack = (_g = availableCaptions.find(function (track) { return track.languageCode.includes(langCode); })) !== null && _g !== void 0 ? _g : availableCaptions === null || availableCaptions === void 0 ? void 0 : availableCaptions[0];
+            }
+            return captionTrack === null || captionTrack === void 0 ? void 0 : captionTrack.baseUrl;
         }
-    });
-}); };
-/**
- * @see https://github.com/Kakulukian/youtube-transcript/issues/19
- * @param {string} url
- * @returns {Promise<YoutubeTranscriptResponse[]>}
- */
-var getTranscript = function (url) { return __awaiter(void 0, void 0, void 0, function () {
-    var response, body, $;
-    return __generator(this, function (_a) {
-        switch (_a.label) {
-            case 0: return [4 /*yield*/, fetch(url)];
-            case 1:
-                response = _a.sent();
-                return [4 /*yield*/, response.text()];
-            case 2:
-                body = _a.sent();
-                $ = load(body);
-                return [2 /*return*/, $('text')
-                        .map(function (_, element) {
-                        return {
-                            text: $(element).text(),
-                            offset: toMs($(element).attr('start')),
-                            duration: toMs($(element).attr('dur')),
-                        };
-                    })
-                        .get()];
+        catch (e) {
+            console.error("YoutubeTranscript.#parseTranscriptEndpoint " + e.message);
+            return null;
         }
-    });
-}); };
-/**
- * Extract caption track URL from raw HTML string.
- * @param {string} html - The raw HTML string.
- * @param {string} [lang] - The language code to filter the caption tracks by. Default is undefined.
- * @returns {string|null} - The URL of the caption track, or null if not found or an error occurred.
- */
-var getCaptionTrack = function (html, lang) {
-    var _a, _b, _c, _d;
-    try {
-        var captionTracks = JSON.parse((_b = (_a = html.match(RE_CAPTION_TRACKS)) === null || _a === void 0 ? void 0 : _a[1]) !== null && _b !== void 0 ? _b : '[]');
-        return ((_d = (_c = ((lang && captionTracks.find(function (e) { return e.languageCode.includes(lang); })) || captionTracks[0])) === null || _c === void 0 ? void 0 : _c.baseUrl) !== null && _d !== void 0 ? _d : null);
-    }
-    catch (err) {
-        return null;
-    }
-};
-/**
- * Get video id from url or string
- * @param videoId - video url or video id
- * @returns {string|null} - the identifier of null
- */
-var getVideoId = function (videoId) {
-    var _a;
-    if (videoId.length === 11) {
-        return videoId;
-    }
-    return getVideoIdFromSearchParams(videoId) || ((_a = videoId.match(RE_YOUTUBE)) === null || _a === void 0 ? void 0 : _a[1]) || null;
-};
-var getVideoIdFromSearchParams = function (videoId) {
-    try {
-        return new URL(videoId).searchParams.get('v');
-    }
-    catch (err) {
-        return null;
-    }
-};
-var toMs = function (n) { return Math.round(parseFloat(n) * 1000); };
+    };
+    /**
+     * Retrieve video id from url or string
+     * @param videoId video url or video id
+     */
+    YoutubeTranscript.retrieveVideoId = function (videoId) {
+        var regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=|shorts\/)|youtu\.be\/)([^"&?\/\s]{11})/i;
+        var matchId = videoId.match(regex);
+        if (matchId && matchId.length) {
+            return matchId[1];
+        }
+        throw new YoutubeTranscriptError('Impossible to retrieve Youtube video ID.');
+    };
+    return YoutubeTranscript;
+}());
 
-export { YoutubeTranscript, YoutubeTranscriptError, fetchTranscript };
+export { YoutubeTranscript, YoutubeTranscriptError };
