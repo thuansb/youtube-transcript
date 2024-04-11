@@ -68,6 +68,8 @@ function __generator(thisArg, body) {
 }
 
 var USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)';
+var RE_PATH = /v|e(?:mbed)?|shorts/;
+var ID_LENGTH = 11;
 var YoutubeTranscriptError = /** @class */ (function (_super) {
     __extends(YoutubeTranscriptError, _super);
     function YoutubeTranscriptError(message) {
@@ -164,13 +166,26 @@ var YoutubeTranscript = /** @class */ (function () {
      * Retrieve video id from url or string
      * @param videoId video url or video id
      */
-    YoutubeTranscript.retrieveVideoId = function (videoId) {
-        var regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=|shorts\/)|youtu\.be\/)([^"&?\/\s]{11})/i;
-        var matchId = videoId.match(regex);
-        if (matchId && matchId.length) {
-            return matchId[1];
+    YoutubeTranscript.retrieveVideoId = function (videoUrlOrId) {
+        var _a;
+        if (!videoUrlOrId) {
+            return null;
         }
-        throw new YoutubeTranscriptError('Impossible to retrieve Youtube video ID.');
+        if (videoUrlOrId.length === ID_LENGTH) {
+            return videoUrlOrId;
+        }
+        try {
+            var url = new URL(videoUrlOrId);
+            var segments = url.pathname.split('/');
+            if (((_a = segments[1]) === null || _a === void 0 ? void 0 : _a.length) === ID_LENGTH) {
+                return segments[1];
+            }
+            return ((RE_PATH.test(segments[1]) ? segments[2] : url.searchParams.get('v')) ||
+                null);
+        }
+        catch (err) {
+            return null;
+        }
     };
     return YoutubeTranscript;
 }());

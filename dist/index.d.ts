@@ -16,5 +16,5 @@ export declare class YoutubeTranscript {
      * Retrieve video id from url or string
      * @param videoId video url or video id
      */
-    static retrieveVideoId(videoId: string): string;
+    static retrieveVideoId(videoUrlOrId: string): string | null;
 }

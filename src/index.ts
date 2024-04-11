@@ -1,6 +1,8 @@
 import { parse } from 'node-html-parser';
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)';
+const RE_PATH = /v|e(?:mbed)?|shorts/;
+const ID_LENGTH = 11;
 
 export class YoutubeTranscriptError extends Error {
   constructor(message: string) {
@@ -83,13 +85,29 @@ export class YoutubeTranscript {
    * Retrieve video id from url or string
    * @param videoId video url or video id
    */
-  static retrieveVideoId(videoId: string) {
-    const regex =
-      /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=|shorts\/)|youtu\.be\/)([^"&?\/\s]{11})/i;
-    const matchId = videoId.match(regex);
-    if (matchId && matchId.length) {
-      return matchId[1];
+  static retrieveVideoId(videoUrlOrId: string): string | null {
+    if (!videoUrlOrId) {
+      return null
     }
-    throw new YoutubeTranscriptError('Impossible to retrieve Youtube video ID.');
+  
+    if (videoUrlOrId.length === ID_LENGTH) {
+      return videoUrlOrId;
+    }
+  
+    try {
+      const url = new URL(videoUrlOrId);
+      const segments = url.pathname.split('/');
+  
+      if (segments[1]?.length === ID_LENGTH) {
+        return segments[1];
+      }
+  
+      return (
+        (RE_PATH.test(segments[1]) ? segments[2] : url.searchParams.get('v')) ||
+        null
+      );
+    } catch (err) {
+      return null;
+    }
   }
 }
