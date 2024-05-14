@@ -67,11 +67,15 @@ export class YoutubeTranscript {
 
       const data = JSON.parse(dataString.trim());
       const availableCaptions = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+      const firstUserUploadedCaption = availableCaptions.find((track: any) => track.vssId.startsWith('.'))
+      const fallbackCaption = firstUserUploadedCaption || availableCaptions?.[0];
 
-      let captionTrack = availableCaptions?.[0];
+      let captionTrack = fallbackCaption
       if (langCode) {
-        captionTrack =
-          availableCaptions.find((track: any) => track.languageCode.includes(langCode)) ?? availableCaptions?.[0];
+        const captionsByLang = availableCaptions.filter((track: any) => track.languageCode.includes(langCode))
+        const userUploadedCaption = captionsByLang.find((track: any) => track.vssId.startsWith('.'))
+
+        captionTrack = userUploadedCaption || captionsByLang[0] || fallbackCaption
       }
 
       return captionTrack?.baseUrl;
@@ -89,19 +93,19 @@ export class YoutubeTranscript {
     if (!videoUrlOrId) {
       return null
     }
-  
+
     if (videoUrlOrId.length === ID_LENGTH) {
       return videoUrlOrId;
     }
-  
+
     try {
       const url = new URL(videoUrlOrId);
       const segments = url.pathname.split('/');
-  
+
       if (segments[1]?.length === ID_LENGTH) {
         return segments[1];
       }
-  
+
       return (
         (RE_PATH.test(segments[1]) ? segments[2] : url.searchParams.get('v')) ||
         null
