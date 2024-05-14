@@ -137,7 +137,7 @@ var YoutubeTranscript = /** @class */ (function () {
         });
     };
     YoutubeTranscript.parseTranscriptEndpoint = function (document, langCode) {
-        var _a, _b, _c, _d, _e, _f, _g;
+        var _a, _b, _c, _d, _e, _f;
         if (langCode === void 0) { langCode = null; }
         try {
             var scripts = document.getElementsByTagName('script');
@@ -147,9 +147,13 @@ var YoutubeTranscript = /** @class */ (function () {
             var dataString = ((_d = (_c = (_b = (_a = playerScript.textContent) === null || _a === void 0 ? void 0 : _a.split('var ytInitialPlayerResponse = ')) === null || _b === void 0 ? void 0 : _b[1]) === null || _c === void 0 ? void 0 : _c.split('};')) === null || _d === void 0 ? void 0 : _d[0]) + '}';
             var data = JSON.parse(dataString.trim());
             var availableCaptions = ((_f = (_e = data === null || data === void 0 ? void 0 : data.captions) === null || _e === void 0 ? void 0 : _e.playerCaptionsTracklistRenderer) === null || _f === void 0 ? void 0 : _f.captionTracks) || [];
-            var captionTrack = availableCaptions === null || availableCaptions === void 0 ? void 0 : availableCaptions[0];
+            var firstUserUploadedCaption = availableCaptions.find(function (track) { return track.vssId.startsWith('.'); });
+            var fallbackCaption = firstUserUploadedCaption || (availableCaptions === null || availableCaptions === void 0 ? void 0 : availableCaptions[0]);
+            var captionTrack = fallbackCaption;
             if (langCode) {
-                captionTrack = (_g = availableCaptions.find(function (track) { return track.languageCode.includes(langCode); })) !== null && _g !== void 0 ? _g : availableCaptions === null || availableCaptions === void 0 ? void 0 : availableCaptions[0];
+                var captionsByLang = availableCaptions.filter(function (track) { return track.languageCode.includes(langCode); });
+                var userUploadedCaption = captionsByLang.find(function (track) { return track.vssId.startsWith('.'); });
+                captionTrack = userUploadedCaption || captionsByLang[0] || fallbackCaption;
             }
             return captionTrack === null || captionTrack === void 0 ? void 0 : captionTrack.baseUrl;
         }
